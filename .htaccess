@@ -1,0 +1,38 @@
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  # 1. Force Authorization header pass-through to PHP on LiteSpeed / Apache
+  RewriteCond %{HTTP:Authorization} .
+  RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+  # 2. Force MIME Types
+  AddType application/javascript .js .mjs
+  AddType text/css .css
+  AddType image/svg+xml .svg
+  AddType video/mp4 .mp4
+  AddType font/woff2 .woff2
+  AddType font/woff .woff
+
+  # 3. Security & CORS Headers
+  <IfModule mod_headers.c>
+    Header set Access-Control-Allow-Origin "*"
+    Header set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+    Header set Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With"
+  </IfModule>
+
+  # 4. Direct access to actual files and directories (assets, uploads, etc.)
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  # 5. Forward /api calls to PHP API Gateway
+  RewriteRule ^api/(.*)$ api/index.php [QSA,L]
+
+  # 6. Single Page Application (SPA) rewrite to index.html
+  RewriteRule ^ index.html [L]
+</IfModule>
+
+# Disable Directory Indexing
+Options -Indexes
+DirectoryIndex index.html index.php

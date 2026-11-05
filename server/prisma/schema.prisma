@@ -1,0 +1,362 @@
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  USER
+  CREATOR
+  ADMIN
+}
+
+enum VideoStatus {
+  UPLOADING
+  PROCESSING
+  PUBLISHED
+  FAILED
+}
+
+enum Visibility {
+  PUBLIC
+  FOLLOWERS_ONLY
+  PRIVATE
+}
+
+model User {
+  id              String         @id @default(uuid())
+  email           String         @unique
+  username        String         @unique
+  fullName        String
+  passwordHash    String
+  role            Role           @default(USER)
+  avatarUrl       String?
+  bio             String?        @db.Text
+  isVerified      Boolean        @default(false)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  refreshTokens   RefreshToken[]
+  videos          Video[]
+  likes           VideoLike[]
+  comments        Comment[]
+  bookmarks       Bookmark[]
+  videoViews      VideoView[]
+  
+  followers       Follow[]       @relation("UserFollowers")
+  following       Follow[]       @relation("UserFollowing")
+  
+  sentMessages    Message[]      @relation("SentMessages")
+  conversations1  Conversation[] @relation("ConversationUser1")
+  conversations2  Conversation[] @relation("ConversationUser2")
+
+  notificationsReceived Notification[] @relation("NotificationRecipient")
+  notificationsSent     Notification[] @relation("NotificationActor")
+  
+  auditLogs       AuditLog[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique @db.VarChar(500)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Category {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  slug        String   @unique
+  icon        String?
+  description String?
+  videos      Video[]
+  createdAt   DateTime @default(now())
+
+  @@map("categories")
+}
+
+model Sound {
+  id          String   @id @default(uuid())
+  title       String
+  artist      String
+  audioUrl    String
+  coverUrl    String?
+  duration    Int      @default(0) // seconds
+  videos      Video[]
+  createdAt   DateTime @default(now())
+
+  @@map("sounds")
+}
+
+model Video {
+  id            String         @id @default(uuid())
+  title         String
+  description   String?        @db.Text
+  videoUrl      String
+  thumbnailUrl  String?
+  duration      Float          @default(0)
+  width         Int            @default(1080)
+  height        Int            @default(1920)
+  visibility    Visibility     @default(PUBLIC)
+  status        VideoStatus    @default(PUBLISHED)
+  
+  userId        String
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  categoryId    String?
+  category      Category?      @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  soundId       String?
+  sound         Sound?         @relation(fields: [soundId], references: [id], onDelete: SetNull)
+
+  viewsCount    Int            @default(0)
+  likesCount    Int            @default(0)
+  commentsCount Int            @default(0)
+  sharesCount   Int            @default(0)
+  bookmarksCount Int           @default(0)
+
+  views         VideoView[]
+  likes         VideoLike[]
+  comments      Comment[]
+  bookmarks     Bookmark[]
+  hashtags      VideoHashtag[]
+  aiInteractions AIInteraction[]
+  aiAnalysis    AIAnalysis?
+
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([userId])
+  @@index([categoryId])
+  @@index([createdAt])
+  @@map("videos")
+}
+
+model VideoView {
+  id        String   @id @default(uuid())
+  videoId   String
+  video     Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([videoId])
+  @@map("video_views")
+}
+
+model VideoLike {
+  id        String   @id @default(uuid())
+  videoId   String
+  video     Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([videoId, userId])
+  @@map("video_likes")
+}
+
+model Bookmark {
+  id        String   @id @default(uuid())
+  videoId   String
+  video     Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([videoId, userId])
+  @@map("bookmarks")
+}
+
+model Comment {
+  id            String          @id @default(uuid())
+  videoId       String
+  video         Video           @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  userId        String?
+  user          User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // AI Persona attribution if generated by AI
+  isAi          Boolean         @default(false)
+  aiCharacterId String?
+  aiCharacter   AICharacter?    @relation(fields: [aiCharacterId], references: [id], onDelete: SetNull)
+
+  content       String          @db.Text
+  parentId      String?
+  parent        Comment?        @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies       Comment[]       @relation("CommentReplies")
+
+  likesCount    Int             @default(0)
+  createdAt     DateTime        @default(now())
+
+  @@index([videoId])
+  @@index([parentId])
+  @@map("comments")
+}
+
+model Follow {
+  id          String   @id @default(uuid())
+  followerId  String
+  follower    User     @relation("UserFollowers", fields: [followerId], references: [id], onDelete: Cascade)
+  followingId String
+  following   User     @relation("UserFollowing", fields: [followingId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@unique([followerId, followingId])
+  @@map("follows")
+}
+
+model Hashtag {
+  id        String         @id @default(uuid())
+  name      String         @unique
+  videos    VideoHashtag[]
+  createdAt DateTime       @default(now())
+
+  @@map("hashtags")
+}
+
+model VideoHashtag {
+  videoId   String
+  video     Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  hashtagId String
+  hashtag   Hashtag  @relation(fields: [hashtagId], references: [id], onDelete: Cascade)
+
+  @@id([videoId, hashtagId])
+  @@map("video_hashtags")
+}
+
+model Conversation {
+  id        String    @id @default(uuid())
+  user1Id   String
+  user1     User      @relation("ConversationUser1", fields: [user1Id], references: [id], onDelete: Cascade)
+  user2Id   String
+  user2     User      @relation("ConversationUser2", fields: [user2Id], references: [id], onDelete: Cascade)
+  messages  Message[]
+  updatedAt DateTime  @updatedAt
+  createdAt DateTime  @default(now())
+
+  @@unique([user1Id, user2Id])
+  @@map("conversations")
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User         @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  text           String       @db.Text
+  mediaUrl       String?
+  isRead         Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId])
+  @@map("messages")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  actorId   String?
+  actor     User?    @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+  type      String   // LIKE, COMMENT, FOLLOW, AI_INTERACTION, SYSTEM
+  message   String
+  videoId   String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("notifications")
+}
+
+model AICharacter {
+  id             String          @id @default(uuid())
+  name           String
+  avatar         String
+  personality    String          // Humorous, Friendly, Enthusiastic, Curious, Informative, Supportive, Critical Reviewer
+  systemPrompt   String          @db.Text
+  badgeColor     String          @default("#F59E0B")
+  isActive       Boolean         @default(true)
+  comments       Comment[]
+  aiInteractions AIInteraction[]
+  createdAt      DateTime        @default(now())
+
+  @@map("ai_characters")
+}
+
+model AIInteraction {
+  id            String       @id @default(uuid())
+  videoId       String
+  video         Video        @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  aiCharacterId String
+  aiCharacter   AICharacter  @relation(fields: [aiCharacterId], references: [id], onDelete: Cascade)
+  commentText   String       @db.Text
+  sentiment     String?
+  scheduledFor  DateTime     @default(now())
+  isPublished   Boolean      @default(true)
+  createdAt     DateTime     @default(now())
+
+  @@index([videoId])
+  @@map("ai_interactions")
+}
+
+model AIAnalysis {
+  id              String   @id @default(uuid())
+  videoId         String   @unique
+  video           Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  detectedContext String   @db.Text
+  detectedMood    String
+  suggestedTags   String   @db.Text // JSON string or comma-separated
+  generatedCaption String? @db.Text
+  qualityScore    Float    @default(8.5)
+  createdAt       DateTime @default(now())
+
+  @@map("ai_analyses")
+}
+
+model AISetting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       String   @db.Text
+  description String?
+  updatedAt   DateTime @updatedAt
+
+  @@map("ai_settings")
+}
+
+model VideoDraft {
+  id          String   @id @default(uuid())
+  userId      String
+  title       String?
+  editorState String   @db.LongText // JSON of timeline tracks, trims, filters, audio
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("video_drafts")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  entity    String
+  entityId  String?
+  details   String?  @db.Text
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@map("audit_logs")
+}
+
